@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Figma to Flutter Plugin</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 16px;
+    }
+    textarea {
+      width: 100%;
+      height: 200px;
+      margin-bottom: 12px;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    input {
+      width: 100%;
+      margin-bottom: 12px;
+      padding: 8px;
+    }
+    button {
+      padding: 8px 12px;
+      background-color: #18a0fb;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #0f8cd8;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Figma → Flutter</h2>
+
+  <div>
+    <button id="serialize">Serialize Selection</button>
+  </div>
+
+  <div>
+    <label for="serverUrl">Backend Server URL</label>
+    <input 
+      type="text" 
+      id="serverUrl" 
+      placeholder="http://localhost:5000/generate"
+      value="http://localhost:5000/generate"
+    >
+  </div>
+
+  <div>
+    <label for="output">Figma Selection JSON</label>
+    <textarea id="output" placeholder="Serialized selection will appear here..." readonly></textarea>
+  </div>
+
+  <div>
+    <button id="send">Send to Server</button>
+  </div>
+
+  <script>
+    const serializeBtn = document.getElementById('serialize');
+    const sendBtn = document.getElementById('send');
+    const output = document.getElementById('output');
+    const serverUrlInput = document.getElementById('serverUrl');
+
+    serializeBtn.onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'serialize-selection' } }, '*');
+    };
+
+    sendBtn.onclick = () => {
+      const data = output.value;
+      const serverUrl = serverUrlInput.value.trim();
+      if (!data) {
+        alert('No selection serialized yet.');
+        return;
+      }
+      if (!serverUrl) {
+        alert('Please enter a backend server URL.');
+        return;
+      }
+      fetch(serverUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: data
+      })
+      .then(res => res.text())
+      .then(code => {
+        alert('Received code from server:\n' + code);
+      })
+      .catch(err => {
+        console.error(err);
+        alert('Error sending data to server.');
+      });
+    };
+
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (msg.type === 'selection-data') {
+        output.value = JSON.stringify(msg.data, null, 2);
+      }
+    };
+  </script>
+</body>
+</html>
