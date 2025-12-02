@@ -1,0 +1,22 @@
+# Node modules
+server/node_modules/
+# macOS specific files
+.DS_Store
+plugin/.DS_Store
+server/.DS_Store
+# Compiled output
+plugin/
+# Generated images
+plugin/Group 162701.png
+# dotenv environment variables file
+server/.env
+# server logs
+server/server.log
+# Uploaded files
+server/uploads/
+# package-lock.json
+server/package-lock.json
+server/plugin/package-lock.json
+# VSCode specific
+.vscode/mcp.json
+
