@@ -5,7 +5,8 @@ server/node_modules/
 plugin/.DS_Store
 server/.DS_Store
 # Compiled output
-plugin/
+plugin/dist
+plugin/node_modules
 # Generated images
 plugin/Group 162701.png
 # dotenv environment variables file

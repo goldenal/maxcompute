@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Inter, sans-serif;
+            padding: 0;
+            margin: 0;
+            color: #333;
+            background: #fff;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #e5e5e5;
+            background: #f5f5f5;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .tab.active {
+            background: #fff;
+            color: #18A0FB;
+            border-bottom: 2px solid #18A0FB;
+            font-weight: 600;
+        }
+
+        /* Content */
+        .content {
+            padding: 20px;
+            display: none;
+        }
+
+        .content.active {
+            display: block;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #333;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            font-family: Inter, sans-serif;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+
+        input:focus,
+        select:focus {
+            outline: 2px solid #18A0FB;
+            border-color: transparent;
+        }
+
+        /* Buttons */
+        button {
+            background: #18A0FB;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: 500;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0D8DE3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: transparent;
+            border: 1px solid #e5e5e5;
+            color: #333;
+        }
+
+        button.secondary:hover {
+            background: #f5f5f5;
+        }
+
+        /* Settings Radio */
+        .radio-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .radio-group label {
+            font-weight: 400;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        /* Output Area */
+        .output-container {
+            position: relative;
+            margin-top: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            padding: 15px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 11px;
+            resize: vertical;
+            background: #f9f9f9;
+            color: #333;
+            box-sizing: border-box;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: auto;
+            background: rgba(0, 0, 0, 0.1);
+            color: #333;
+            font-size: 10px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            backdrop-filter: blur(4px);
+        }
+
+        /* Status & Errors */
+        .status {
+            margin-bottom: 16px;
+            padding: 8px;
+            background: #eef9fe;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #18A0FB;
+            display: none;
+        }
+
+        .error {
+            color: #F24822;
+            margin-top: 10px;
+            font-size: 11px;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 10px;
+            color: #666;
+            font-size: 11px;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid #ccc;
+            border-top-color: #18A0FB;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Section Divider */
+        .divider {
+            height: 1px;
+            background: #e5e5e5;
+            margin: 20px 0;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Asset Info */
+        .asset-info {
+            background: #f0f8ff;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <div class="tab active" data-tab="project">Project</div>
+        <div class="tab" data-tab="generate">Generate</div>
+    </div>
+
+    <!-- Project Tab -->
+    <div id="project" class="content active">
+        <div id="project-status" class="status"></div>
+
+        <div class="form-group">
+            <label>Mode</label>
+            <div class="radio-group">
+                <label><input type="radio" name="projectMode" value="existing" checked> Existing Project</label>
+                <label><input type="radio" name="projectMode" value="new"> New Project</label>
+            </div>
+        </div>
+
+        <!-- Existing Project Form -->
+        <div id="existing-form">
+            <div class="form-group">
+                <label>Project Path (Absolute)</label>
+                <input type="text" id="existing-path" placeholder="/Users/username/projects/my_app">
+            </div>
+            <button id="load-project">Load Project</button>
+        </div>
+
+        <!-- New Project Form -->
+        <div id="new-form" style="display: none;">
+            <div class="form-group">
+                <label>Parent Directory</label>
+                <input type="text" id="new-parent-path" placeholder="/Users/username/projects">
+            </div>
+            <div class="form-group">
+                <label>Project Name</label>
+                <input type="text" id="new-project-name" placeholder="my_flutter_app">
+            </div>
+            <button id="create-project">Create Project</button>
+        </div>
+
+        <div id="project-error" class="error"></div>
+        <div id="project-loading" class="loading">
+            <div class="spinner"></div><span>Processing...</span>
+        </div>
+    </div>
+
+    <!-- Generate Tab -->
+    <div id="generate" class="content">
+
+        <div class="form-group">
+            <label>Target Feature</label>
+            <div class="row">
+                <select id="feature-select" disabled>
+                    <option value="">Select a feature...</option>
+                </select>
+                <button id="new-feature-btn" class="secondary" style="width: auto;" disabled>+</button>
+            </div>
+        </div>
+
+        <!-- New Feature Input (Hidden by default) -->
+        <div id="new-feature-input" class="form-group" style="display: none;">
+            <label>New Feature Name</label>
+            <div class="row">
+                <input type="text" id="new-feature-name" placeholder="e.g. settings">
+                <button id="create-feature-confirm" style="width: auto;">Create</button>
+                <button id="create-feature-cancel" class="secondary" style="width: auto;">Cancel</button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>File Name</label>
+            <input type="text" id="file-name" placeholder="e.g. home_screen.dart">
+        </div>
+
+        <div class="form-group">
+            <label>Widget Type</label>
+            <div class="radio-group">
+                <label><input type="radio" name="widgetType" value="StatelessWidget" checked> Stateless</label>
+                <label><input type="radio" name="widgetType" value="StatefulWidget"> Stateful</label>
+            </div>
+        </div>
+
+        <div class="row">
+            <button id="convert-save">Generate & Save</button>
+            <button id="convert-only" class="secondary">Generate Only</button>
+        </div>
+
+        <div id="gen-loading" class="loading">
+            <div class="spinner"></div><span>Generating...</span>
+        </div>
+        <div id="gen-error" class="error"></div>
+        <div id="asset-info" class="asset-info"></div>
+
+        <div class="output-container">
+            <textarea id="output" readonly placeholder="Flutter code will appear here..."></textarea>
+            <button id="copy" class="copy-btn">Copy</button>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let currentProjectPath = null;
+        let currentFeatures = [];
+        let isSaving = false;
+
+        // Elements
+        const tabs = document.querySelectorAll('.tab');
+        const contents = document.querySelectorAll('.content');
+        const projectModeRadios = document.querySelectorAll('input[name="projectMode"]');
+        const existingForm = document.getElementById('existing-form');
+        const newForm = document.getElementById('new-form');
+        const projectStatus = document.getElementById('project-status');
+        const featureSelect = document.getElementById('feature-select');
+        const newFeatureBtn = document.getElementById('new-feature-btn');
+        const output = document.getElementById('output');
+        const genError = document.getElementById('gen-error');
+        const genLoading = document.getElementById('gen-loading');
+        const assetInfo = document.getElementById('asset-info');
+        const convertSaveBtn = document.getElementById('convert-save');
+        const convertOnlyBtn = document.getElementById('convert-only');
+
+        const SERVER_URL = 'http://localhost:3000';
+
+        // Tab Switching
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                contents.forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Project Mode Switching
+        projectModeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'existing') {
+                    existingForm.style.display = 'block';
+                    newForm.style.display = 'none';
+                } else {
+                    existingForm.style.display = 'none';
+                    newForm.style.display = 'block';
+                }
+            });
+        });
+
+        // Helper: API Call
+        async function apiCall(endpoint, body) {
+            const res = await fetch(`${SERVER_URL}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Server Error');
+            return data;
+        }
+
+        // Helper: Update UI State
+        function setProjectConnected(path) {
+            currentProjectPath = path;
+            projectStatus.textContent = `Connected: ${path}`;
+            projectStatus.style.display = 'block';
+            featureSelect.disabled = false;
+            newFeatureBtn.disabled = false;
+            loadFeatures(path);
+        }
+
+        async function loadFeatures(path) {
+            try {
+                const data = await apiCall('/project/features', { projectPath: path });
+                currentFeatures = data.features;
+                updateFeatureSelect();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function updateFeatureSelect() {
+            featureSelect.innerHTML = '<option value="">Select a feature...</option>';
+            currentFeatures.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = f;
+                featureSelect.appendChild(opt);
+            });
+        }
+
+        // --- Project Actions ---
+
+        document.getElementById('load-project').onclick = async () => {
+            const path = document.getElementById('existing-path').value;
+            const errorEl = document.getElementById('project-error');
+            const loadingEl = document.getElementById('project-loading');
+
+            if (!path) return;
+
+            errorEl.textContent = '';
+            loadingEl.style.display = 'flex';
+
+            try {
+                const { isValid } = await apiCall('/project/validate', { path });
+                if (isValid) {
+                    setProjectConnected(path);
+                    tabs[1].click();
+                } else {
+                    errorEl.textContent = 'Invalid Flutter project (pubspec.yaml not found)';
+                }
+            } catch (e) {
+                errorEl.textContent = e.message;
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        };
+
+        document.getElementById('create-project').onclick = async () => {
+            const parentPath = document.getElementById('new-parent-path').value;
+            const projectName = document.getElementById('new-project-name').value;
+            const errorEl = document.getElementById('project-error');
+            const loadingEl = document.getElementById('project-loading');
+
+            if (!parentPath || !projectName) return;
+
+            errorEl.textContent = '';
+            loadingEl.style.display = 'flex';
+
+            try {
+                const { path } = await apiCall('/project/create', { parentPath, projectName });
+                setProjectConnected(path);
+                tabs[1].click();
+            } catch (e) {
+                errorEl.textContent = e.message;
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        };
+
+        // --- Feature Actions ---
+
+        newFeatureBtn.onclick = () => {
+            document.getElementById('new-feature-input').style.display = 'block';
+        };
+
+        document.getElementById('create-feature-cancel').onclick = () => {
+            document.getElementById('new-feature-input').style.display = 'none';
+        };
+
+        document.getElementById('create-feature-confirm').onclick = async () => {
+            const name = document.getElementById('new-feature-name').value;
+            if (!name || !currentProjectPath) return;
+
+            try {
+                await apiCall('/project/feature', { projectPath: currentProjectPath, featureName: name });
+                await loadFeatures(currentProjectPath);
+                document.getElementById('new-feature-input').style.display = 'none';
+                featureSelect.value = name;
+            } catch (e) {
+                alert(e.message);
+            }
+        };
+
+        // --- Generation Actions ---
+
+        async function handleConvert(saveToFile) {
+            genError.textContent = '';
+            output.value = '';
+            assetInfo.style.display = 'none';
+            genLoading.style.display = 'flex';
+            convertSaveBtn.disabled = true;
+            convertOnlyBtn.disabled = true;
+
+            isSaving = saveToFile;
+
+            // Request selection data from plugin
+            parent.postMessage({ pluginMessage: { type: 'convert-selection', saveToFile } }, '*');
+        }
+
+        convertSaveBtn.onclick = () => {
+            if (!currentProjectPath) {
+                alert('Please connect to a project first.');
+                return;
+            }
+            const feature = featureSelect.value;
+            const fileName = document.getElementById('file-name').value;
+
+            if (!feature || !fileName) {
+                alert('Please select a feature and enter a file name.');
+                return;
+            }
+            handleConvert(true);
+        };
+
+        convertOnlyBtn.onclick = () => handleConvert(false);
+
+        // --- Main Message Handler ---
+        window.onmessage = async (event) => {
+            const msg = event.data.pluginMessage;
+            if (!msg) return;
+
+            // Handle Upload Request from code.ts
+            if (msg.type === 'upload-req') {
+                try {
+                    const { id, name, data } = msg;
+                    console.log(`[UI] Uploading asset: ${name} (ID: ${id})`);
+
+                    const res = await apiCall('/upload-image', {
+                        name,
+                        data
+                    });
+
+                    console.log(`[UI] Upload success: ${res.filename}`);
+
+                    // Send response back to code.ts
+                    parent.postMessage({
+                        pluginMessage: {
+                            type: 'upload-resp',
+                            id,
+                            filename: res.filename
+                        }
+                    }, '*');
+                } catch (e) {
+                    console.error('[UI] Upload failed:', e);
+                    parent.postMessage({
+                        pluginMessage: {
+                            type: 'upload-resp',
+                            id: msg.id,
+                            error: e.message
+                        }
+                    }, '*');
+                }
+                return;
+            }
+
+            // Handle Error from code.ts
+            if (msg.type === 'error') {
+                genError.textContent = msg.message;
+                genLoading.style.display = 'none';
+                convertSaveBtn.disabled = false;
+                convertOnlyBtn.disabled = false;
+                return;
+            }
+
+            // Handle Selection Data
+            if (msg.type === 'selection-data') {
+                try {
+                    const widgetType = document.querySelector('input[name="widgetType"]:checked').value;
+                    const assets = msg.assets || {};
+
+                    // Show asset info
+                    const assetCount = Object.keys(assets).length;
+                    if (assetCount > 0) {
+                        assetInfo.textContent = `✓ ${assetCount} image(s) detected`;
+                        assetInfo.style.display = 'block';
+                        console.log('[UI] Assets received:', assets);
+                    }
+
+                    console.log('[UI] Sending to server for conversion...');
+
+                    // Generate Code - Server will handle asset saving and create proper assetMap
+                    const genRes = await apiCall('/convert', {
+                        figmaData: msg.data,
+                        options: { widgetType },
+                        assets: assets, // Send raw asset data {id, name, filename}
+                        projectPath: currentProjectPath, // Server needs this to save assets
+                        contextImage: msg.contextImage // Filename of the context image
+                    });
+
+                    output.value = genRes.code;
+
+                    // Update asset info if assets were processed
+                    if (assetCount > 0 && currentProjectPath) {
+                        assetInfo.textContent = `✓ ${assetCount} image(s) saved to assets/images/`;
+                    }
+
+                    // Save if requested
+                    if (isSaving && currentProjectPath) {
+                        const feature = featureSelect.value;
+                        const fileName = document.getElementById('file-name').value;
+
+                        await apiCall('/file/save', {
+                            projectPath: currentProjectPath,
+                            featureName: feature,
+                            fileName: fileName,
+                            content: genRes.code
+                        });
+
+                        alert(`Saved to lib/features/${feature}/${fileName}`);
+                    }
+
+                } catch (e) {
+                    console.error('[UI] Generation error:', e);
+                    genError.textContent = e.message;
+                } finally {
+                    genLoading.style.display = 'none';
+                    convertSaveBtn.disabled = false;
+                    convertOnlyBtn.disabled = false;
+                    isSaving = false;
+                }
+            }
+
+            // Handle Remote Logging
+            if (msg.type === 'log-to-server') {
+                apiCall('/log', { message: msg.message, type: msg.logType }).catch(e => console.error(e));
+            }
+        };
+
+        // Override console.log/error to send to server (optional, but useful)
+        const originalLog = console.log;
+        const originalError = console.error;
+
+        console.log = (...args) => {
+            originalLog.apply(console, args);
+            // Avoid infinite loop if apiCall logs
+            if (args[0] && typeof args[0] === 'string' && args[0].startsWith('[UI]')) {
+                apiCall('/log', { message: args.join(' '), type: 'info' }).catch(() => { });
+            }
+        };
+
+        console.error = (...args) => {
+            originalError.apply(console, args);
+            apiCall('/log', { message: args.join(' '), type: 'error' }).catch(() => { });
+        };
+
+        // Copy Button
+        document.getElementById('copy').onclick = () => {
+            if (!output.value) return;
+            output.select();
+            document.execCommand('copy');
+            const btn = document.getElementById('copy');
+            const original = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = original, 2000);
+        };
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,15 @@
+{
+    "name": "figma-flutter-maxcompute",
+    "version": "1.0.0",
+    "description": "Figma to Flutter converter using Max Compute",
+    "main": "dist/code.js",
+    "scripts": {
+        "build": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6",
+        "watch": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6 --watch"
+    },
+    "devDependencies": {
+        "@figma/plugin-typings": "^1.84.0",
+        "esbuild": "^0.19.11",
+        "typescript": "^5.3.3"
+    }
+}

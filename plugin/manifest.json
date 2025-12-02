@@ -1,0 +1,16 @@
+{
+    "name": "Figma to Flutter (Max Compute)",
+    "id": "figma-flutter-maxcompute",
+    "api": "1.0.0",
+    "main": "dist/code.js",
+    "ui": "src/ui.html",
+    "editorType": [
+        "figma"
+    ],
+    "networkAccess": {
+        "allowedDomains": [
+            "http://localhost:3000"
+        ],
+        "reasoning": "This plugin needs to connect to a local server to communicate with the Gemini API for generating Flutter code."
+    }
+}
