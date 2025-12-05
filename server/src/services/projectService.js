@@ -128,6 +128,7 @@ class ProjectService {
             console.log(`[ProjectService] Temp upload saved: ${filename}`);
             return filename;
         } catch (error) {
+
             console.error('Save Temp Upload Error:', error);
             throw error;
         }
@@ -137,6 +138,7 @@ class ProjectService {
      * Copies assets from temp uploads to project's assets/images folder
      * Returns assetMap: { nodeId: 'assets/images/filename.png' }
      */
+    
     async saveAssets(projectPath, assets) {
         try {
             const assetsDir = path.join(projectPath, 'assets', 'images');

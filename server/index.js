@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const GeminiService = require('./src/services/geminiService');
-const { buildPrompt } = require('./src/utils/promptBuilder');
 const ProjectService = require('./src/services/projectService');
 
 const app = express();
@@ -121,15 +120,13 @@ app.post('/upload-image', async (req, res) => {
 });
 
 /**
- * Convert Figma to Flutter
- * 1. Saves assets to project (if projectPath provided)
- * 2. Creates assetMap (nodeId -> Flutter asset path)
- * 3. Builds prompt with assetMap
- * 4. Generates code via LLM
+ * Convert UI Screenshot to Flutter Code
+ * Uses only the context image for code generation
+ * Optional: Can save assets to project if projectPath is provided
  */
 app.post('/convert', async (req, res) => {
     try {
-        const { figmaData, options, assets, projectPath } = req.body;
+        const { contextImage, options, projectPath } = req.body;
 
         if (!geminiService) {
             if (process.env.GEMINI_API_KEY) {
@@ -139,50 +136,16 @@ app.post('/convert', async (req, res) => {
             }
         }
 
-        if (!figmaData) {
-            return res.status(400).json({ error: 'Missing figmaData in request body.' });
+        if (!contextImage) {
+            return res.status(400).json({ error: 'Missing contextImage in request body.' });
         }
 
-        let assetMap = {};
+        console.log(`[Server] Converting UI from context image: ${contextImage}`);
+        console.log(`[Server] Options:`, options);
 
-        // Process assets if we have both assets and a project path
-        if (assets && Object.keys(assets).length > 0) {
-            console.log('[Server] Received assets:', Object.keys(assets));
-
-            if (projectPath) {
-                try {
-                    // Save assets to project and get Flutter-compatible paths
-                    assetMap = await projectService.saveAssets(projectPath, assets);
-                    console.log('[Server] Assets saved to project. Map:', assetMap);
-
-                    // Update pubspec.yaml to register assets
-                    await projectService.updatePubspec(projectPath);
-                } catch (e) {
-                    console.error('[Server] Failed to save assets:', e);
-                    // Continue with generation even if assets fail
-                    // The LLM will generate code without Image.asset() calls
-                }
-            } else {
-                console.log('[Server] No project path provided, skipping asset save');
-                // Create placeholder assetMap for generation
-                // This allows code generation to work but with placeholder paths
-                Object.entries(assets).forEach(([nodeId, asset]) => {
-                    assetMap[nodeId] = `assets/images/${asset.name}.png`;
-                });
-            }
-        }
-
-        // Build prompt with asset information
-        const promptData = buildPrompt(figmaData, options, assetMap);
-
-        // Add context image if available
-        if (req.body.contextImage) {
-            promptData.contextImage = req.body.contextImage;
-            console.log(`[Server] Using context image: ${req.body.contextImage}`);
-        }
-
-        console.log('[Server] Generating code with LLM...');
-        const code = await geminiService.generateCode(promptData);
+        // Generate code from image only
+        console.log('[Server] Generating Flutter code from screenshot...');
+        const code = await geminiService.generateCodeFromImage(contextImage, options || {});
 
         console.log('[Server] Code generation complete');
         res.json({ code });
