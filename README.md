@@ -2,7 +2,7 @@
 
 A powerful Figma plugin that converts your UI designs directly into clean, production-ready Flutter code using the Gemini AI API.
 
-## 🚀 Features
+##  Features
 
 - **Screenshot to Code**: Convert any selected Figma component or frame into Flutter code.
 - **AI-Powered**: Uses Google's Gemini API to understand layouts and generate meaningful widget structures.
