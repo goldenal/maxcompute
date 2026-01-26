@@ -11,10 +11,12 @@ class GeminiService {
     }
 
     /**
-     * Generate Flutter code from context image only
-     * @param {Object} params - Generation parameters
-     * @param {string} params.contextImage - Filename of the uploaded context image
-     * @param {Object} params.options - Optional generation options (widgetType, etc.)
+     * Generate Flutter code from context image with optional Figma data
+     * @param {string} contextImage - Filename of the uploaded context image
+     * @param {Object} options - Generation options
+     * @param {string} options.widgetType - Type of Flutter widget (default: 'StatelessWidget')
+     * @param {boolean} options.useProvider - Whether to use Provider pattern
+     * @param {Object} options.figmaData - Optional Figma JSON for precise measurements
      * @returns {Promise<string>} Generated Flutter code
      */
     async generateCodeFromImage(contextImage, options = {}) {
@@ -25,16 +27,20 @@ class GeminiService {
         }
 
         try {
-            const { widgetType = 'StatelessWidget', useProvider = false } = options;
+            const { widgetType = 'StatelessWidget', useProvider = false, figmaData = null } = options;
 
             // Build system instruction for image-to-Flutter conversion
             const systemInstruction = this._buildSystemInstruction(widgetType, useProvider);
 
-            // Build user prompt
-            const userPrompt = this._buildUserPrompt();
+            // Build user prompt with optional Figma data context
+            const userPrompt = this._buildUserPrompt(figmaData);
 
             // Load and encode the image
             const imageData = await this._loadImage(contextImage);
+            
+            if (figmaData) {
+                console.log('[GeminiService] Including Figma data for precise measurements');
+            }
 
             // Prepare multimodal content
             const parts = [
@@ -191,20 +197,19 @@ Analyze the provided UI screenshot and generate pixel-perfect Flutter code that 
     }
 
     /**
-     * Build user prompt for image analysis
+     * Build user prompt for image analysis with optional Figma data
      * @private
      */
-    _buildUserPrompt() {
-        return `Please analyze the UI screenshot provided and generate production-ready Flutter code that recreates this design with pixel-perfect accuracy.
-
-Focus on:
-- Accurate layout structure
-- Precise spacing and padding
-- Exact colors and styling
-- Proper typography
-- Appropriate Flutter widgets
-
-Generate clean, well-structured code that follows Flutter best practices.`;
+    _buildUserPrompt(figmaData = null) {
+        let prompt = `Please analyze the UI screenshot provided and generate production-ready Flutter code that recreates this design with pixel-perfect accuracy.`;
+        
+        if (figmaData) {
+            prompt += `\n\n## FIGMA DESIGN DATA (Use for Precise Measurements)\n\nI'm providing the Figma design data below. Use this JSON to extract EXACT values for:\n\n### Typography\n- **Font sizes** (fontSize property)\n- **Font weights** (fontWeight property)\n- **Line heights** (lineHeight property)\n- **Letter spacing** (letterSpacing property)\n\n### Colors & Fills\n- **Solid colors** (fills array with type: "SOLID", color: {r, g, b} in 0-1 range)\n- **Gradients** (fills array with type: "GRADIENT_LINEAR" or "GRADIENT_RADIAL")\n  - Extract gradientStops array: [{color: {r, g, b}, position: 0-1}]\n  - Extract gradientHandlePositions for angle/direction\n  - Convert to Flutter LinearGradient or RadialGradient\n\n### Layout & Spacing\n- **Border radius** (cornerRadius, topLeftRadius, topRightRadius, bottomLeftRadius, bottomRightRadius)\n- **Spacing** (itemSpacing, padding properties)\n- **Stroke widths** (strokeWeight property)\n- **Opacity** (opacity property)\n\n### Effects (Shadows)\n- **Box shadows** (effects array with type: "DROP_SHADOW" or "INNER_SHADOW")\n  - Extract offset: {x, y} → Offset(x, y)\n  - Extract radius (blur) → blurRadius\n  - Extract spread → spreadRadius\n  - Extract color: {r, g, b, a} → Color with alpha\n  - Multiple shadows → multiple BoxShadow in list\n\n**CRITICAL:** When you see these properties in the Figma data, use the EXACT values. Do not approximate.\n\n### Gradient Conversion Examples:\n\`\`\`\nFigma GRADIENT_LINEAR:\n{\n  type: "GRADIENT_LINEAR",\n  gradientStops: [\n    {color: {r: 0.2, g: 0.4, b: 0.8}, position: 0},\n    {color: {r: 0.8, g: 0.2, b: 0.4}, position: 1}\n  ]\n}\n\nFlutter:\nLinearGradient(\n  colors: [Color(0xFF3366CC), Color(0xFFCC3366)],\n  stops: [0.0, 1.0],\n  begin: Alignment.topLeft,\n  end: Alignment.bottomRight,\n)\n\`\`\`\n\n### Shadow Conversion Examples:\n\`\`\`\nFigma DROP_SHADOW:\n{\n  type: "DROP_SHADOW",\n  offset: {x: 0, y: 4},\n  radius: 8,\n  spread: 2,\n  color: {r: 0, g: 0, b: 0, a: 0.25}\n}\n\nFlutter:\nBoxShadow(\n  offset: Offset(0, 4),\n  blurRadius: 8.0,\n  spreadRadius: 2.0,\n  color: Color(0x40000000),  // 0.25 alpha = 0x40\n)\n\`\`\`\n\nFigma Design JSON:\n\`\`\`json\n${JSON.stringify(figmaData, null, 2)}\n\`\`\`\n\n`;
+        }
+        
+        prompt += `\n\nFocus on:\n- Accurate layout structure from the visual\n- EXACT spacing, padding, and dimensions from Figma data (if provided)\n- EXACT colors and gradients from Figma data (if provided)\n- EXACT typography (sizes, weights, line heights) from Figma data (if provided)\n- EXACT border radius from Figma data (if provided)\n- EXACT box shadows from Figma data (if provided)\n- Appropriate Flutter widgets\n\nGenerate clean, well-structured code that follows Flutter best practices.`;
+        
+        return prompt;
     }
 
     /**
@@ -213,8 +218,15 @@ Generate clean, well-structured code that follows Flutter best practices.`;
      */
     async generateCode(promptData) {
         console.log('[GeminiService] generateCode (legacy) called');
-        const { contextImage, options } = promptData;
-        return this.generateCodeFromImage(contextImage, options || {});
+        const { contextImage, options, figmaData } = promptData;
+        
+        // Merge figmaData into options if provided
+        const enhancedOptions = { ...options };
+        if (figmaData) {
+            enhancedOptions.figmaData = figmaData;
+        }
+        
+        return this.generateCodeFromImage(contextImage, enhancedOptions);
     }
 }
 

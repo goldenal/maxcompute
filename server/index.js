@@ -121,12 +121,13 @@ app.post('/upload-image', async (req, res) => {
 
 /**
  * Convert UI Screenshot to Flutter Code
- * Uses only the context image for code generation
+ * Uses context image as primary visual reference
+ * Optional: Include Figma data for precise measurements (fonts, colors, spacing, border radius)
  * Optional: Can save assets to project if projectPath is provided
  */
 app.post('/convert', async (req, res) => {
     try {
-        const { contextImage, options, projectPath } = req.body;
+          const { contextImage, figmaData, options, assets, projectPath } = req.body;
 
         if (!geminiService) {
             if (process.env.GEMINI_API_KEY) {
@@ -142,10 +143,18 @@ app.post('/convert', async (req, res) => {
 
         console.log(`[Server] Converting UI from context image: ${contextImage}`);
         console.log(`[Server] Options:`, options);
+        console.log(`[Server] Figma data provided:`, !!figmaData);
 
-        // Generate code from image only
+        // Prepare enhanced options with Figma data if available
+        const enhancedOptions = { ...options };
+        if (figmaData) {
+            enhancedOptions.figmaData = figmaData;
+            console.log('[Server] Including Figma data for precise measurements');
+        }
+
+        // Generate code from image with optional Figma context
         console.log('[Server] Generating Flutter code from screenshot...');
-        const code = await geminiService.generateCodeFromImage(contextImage, options || {});
+        const code = await geminiService.generateCodeFromImage(contextImage, enhancedOptions);
 
         console.log('[Server] Code generation complete');
         res.json({ code });
