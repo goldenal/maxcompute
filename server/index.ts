@@ -139,10 +139,12 @@ app.post('/upload-image', async (req: Request, res: Response) => {
  */
 app.post('/convert', async (req: Request, res: Response) => {
     try {
-        const { contextImage, figmaData, options } = req.body as {
+        const { contextImage, figmaData, options, assets, projectPath } = req.body as {
             contextImage: string;
             figmaData?: unknown;
             options?: Record<string, unknown>;
+            assets?: Record<string, { id: string; name: string; filename: string }>;
+            projectPath?: string;
         };
 
         if (!geminiService) {
@@ -168,9 +170,20 @@ app.post('/convert', async (req: Request, res: Response) => {
             console.log('[Server] Including Figma data for precise measurements');
         }
 
+        // Save assets deterministically before code generation
+        let assetMap: Record<string, string> = {};
+        if (projectPath && assets && Object.keys(assets).length > 0) {
+            console.log('[Server] Saving assets to project before code generation...');
+            assetMap = await projectService.saveAssets(projectPath, assets);
+        }
+
         // Generate code from image with optional Figma context
         console.log('[Server] Generating Flutter code from screenshot...');
-        const code = await geminiService.generateCodeFromImage(contextImage, enhancedOptions);
+        const code = await geminiService.generateCodeFromImage(
+            contextImage,
+            enhancedOptions,
+            assetMap
+        );
 
         console.log('[Server] Code generation complete');
         res.json({ code });

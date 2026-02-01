@@ -1,6 +1,8 @@
-import { GoogleGenAI } from '@google/genai';
-import fs from 'fs';
 import path from 'path';
+import fs from 'fs';
+import { LlmAgent, FunctionTool, InMemoryRunner, isFinalResponse, stringifyContent } from '@google/adk';
+import { Content } from '@google/genai';
+import { z } from 'zod';
 
 interface GenerationOptions {
     widgetType?: string;
@@ -9,49 +11,51 @@ interface GenerationOptions {
 }
 
 class GeminiService {
-    private ai: GoogleGenAI;
-
-    constructor(apiKey?: string) {
-        if (!apiKey) {
-            throw new Error('Gemini API Key is required');
-        }
-        this.ai = new GoogleGenAI({ apiKey });
+    constructor(_apiKey?: string) {
     }
 
     /**
      * Generate Flutter code from context image with optional Figma data
-     * @param {string} contextImage - Filename of the uploaded context image
-     * @param {Object} options - Generation options
-     * @param {string} options.widgetType - Type of Flutter widget (default: 'StatelessWidget')
-     * @param {boolean} options.useProvider - Whether to use Provider pattern
-     * @param {Object} options.figmaData - Optional Figma JSON for precise measurements
-     * @returns {Promise<string>} Generated Flutter code
+     * Uses ADK agent with function tools for project/asset operations.
      */
-    async generateCodeFromImage(contextImage: string, options: GenerationOptions = {}): Promise<string> {
+    async generateCodeFromImage(
+        contextImage: string,
+        options: GenerationOptions = {},
+        assetMap: Record<string, string> = {}
+    ): Promise<string> {
         console.log('[GeminiService] generateCodeFromImage started');
 
         if (!contextImage) {
             throw new Error('Context image is required for code generation');
         }
 
-        try {
-            const { widgetType = 'StatelessWidget', useProvider = false, figmaData = null } = options;
+        const { widgetType = 'StatelessWidget', useProvider = false, figmaData = null } = options;
 
-            // Build system instruction for image-to-Flutter conversion
-            const systemInstruction = this._buildSystemInstruction(widgetType, useProvider);
+        const systemInstruction = this._buildSystemInstruction(widgetType, useProvider);
+        const userPrompt = this._buildUserPrompt(figmaData, assetMap);
+        const imageData = await this._loadImage(contextImage);
 
-            // Build user prompt with optional Figma data context
-            const userPrompt = this._buildUserPrompt(figmaData);
+        const tools = this._buildTools();
 
-            // Load and encode the image
-            const imageData = await this._loadImage(contextImage);
+        const agent = new LlmAgent({
+            name: 'figma_flutter_agent',
+            instruction: systemInstruction,
+            tools,
+            model: 'gemini-2.5-flash',
+        });
 
-            if (figmaData) {
-                console.log('[GeminiService] Including Figma data for precise measurements');
-            }
+        const runner = new InMemoryRunner({ agent, appName: 'figma_flutter_app' });
 
-            // Prepare multimodal content
-            const parts = [
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await runner.sessionService.createSession({
+            appName: 'figma_flutter_app',
+            userId: 'server',
+            sessionId,
+        });
+
+        const newMessage: Content = {
+            role: 'user',
+            parts: [
                 { text: userPrompt },
                 {
                     inlineData: {
@@ -59,39 +63,55 @@ class GeminiService {
                         data: imageData,
                     },
                 },
-            ];
+            ],
+        };
 
-            // Use gemini-2.5-pro for multimodal support
-            const modelId = 'gemini-2.5-pro';
+        const finalText = await this._runWithRetries({
+            runner,
+            userId: 'server',
+            sessionId,
+            newMessage,
+            maxAttempts: 3,
+            timeoutMs: 60_000,
+        });
 
-            console.log('[GeminiService] Sending request to Gemini API...');
-            const response = await this.ai.models.generateContent({
-                model: modelId,
-                config: {
-                    systemInstruction: systemInstruction,
-                    temperature: 0.1, // Low temperature for consistent code generation
-                },
-                contents: [{ role: 'user', parts: parts }],
-            });
+        // Clean up code fences if present
+        const cleanedText = finalText.replace(/```dart/g, '').replace(/```/g, '').trim();
 
-            let code = (response as { text?: string }).text;
+        console.log('[GeminiService] Code generation completed successfully');
+        return cleanedText;
+    }
 
-            // Clean up code fences if present
-            if (code) {
-                code = code.replace(/```dart/g, '').replace(/```/g, '').trim();
-            }
+    /**
+     * Legacy method for backward compatibility
+     * @deprecated Use generateCodeFromImage instead
+     */
+    async generateCode(promptData: { contextImage: string; options?: GenerationOptions; figmaData?: unknown }): Promise<string> {
+        console.log('[GeminiService] generateCode (legacy) called');
+        const { contextImage, options, figmaData } = promptData;
 
-            console.log('[GeminiService] Code generation completed successfully');
-            return code || '';
-        } catch (error) {
-            console.error('[GeminiService] Error during code generation:', error);
-            throw error;
+        const enhancedOptions: GenerationOptions = { ...(options || {}) };
+        if (figmaData) {
+            enhancedOptions.figmaData = figmaData;
         }
+
+        return this.generateCodeFromImage(contextImage, enhancedOptions);
+    }
+
+    private _buildTools(): FunctionTool[] {
+        // Keep tools minimal for future use; file IO is handled deterministically by the server.
+        const noop = new FunctionTool({
+            name: 'noop',
+            description: 'No-op tool (reserved for future agentic extensions).',
+            parameters: z.object({}),
+            execute: async () => ({ status: 'success' }),
+        });
+
+        return [noop];
     }
 
     /**
      * Load and encode image from uploads directory
-     * @private
      */
     private async _loadImage(filename: string): Promise<string> {
         const imagePath = path.join(__dirname, '../../uploads', filename);
@@ -110,7 +130,6 @@ class GeminiService {
 
     /**
      * Build system instruction for the LLM
-     * @private
      */
     private _buildSystemInstruction(widgetType: string, useProvider: boolean): string {
         return `You are a Senior Flutter Engineer specializing in converting UI designs to production-ready Flutter code.
@@ -205,11 +224,14 @@ Analyze the provided UI screenshot and generate pixel-perfect Flutter code that 
     }
 
     /**
-     * Build user prompt for image analysis with optional Figma data
-     * @private
+     * Build user prompt for image analysis with optional Figma data and assets.
      */
-    private _buildUserPrompt(figmaData: unknown = null): string {
+    private _buildUserPrompt(figmaData: unknown = null, assetMap: Record<string, string> = {}): string {
         let prompt = 'Please analyze the UI screenshot provided and generate production-ready Flutter code that recreates this design with pixel-perfect accuracy.';
+
+        if (Object.keys(assetMap).length > 0) {
+            prompt += `\n\nImage assets are already saved. Use these paths for Image.asset references where appropriate:\n\`\`\`json\n${JSON.stringify(assetMap, null, 2)}\n\`\`\``;
+        }
 
         if (figmaData) {
             prompt += `\n\n## FIGMA DESIGN DATA (Use for Precise Measurements)\n\nI'm providing the Figma design data below. Use this JSON to extract EXACT values for:\n\n### Typography\n- **Font sizes** (fontSize property)\n- **Font weights** (fontWeight property)\n- **Line heights** (lineHeight property)\n- **Letter spacing** (letterSpacing property)\n\n### Colors & Fills\n- **Solid colors** (fills array with type: "SOLID", color: {r, g, b} in 0-1 range)\n- **Gradients** (fills array with type: "GRADIENT_LINEAR" or "GRADIENT_RADIAL")\n  - Extract gradientStops array: [{color: {r, g, b}, position: 0-1}]\n  - Extract gradientHandlePositions for angle/direction\n  - Convert to Flutter LinearGradient or RadialGradient\n\n### Layout & Spacing\n- **Border radius** (cornerRadius, topLeftRadius, topRightRadius, bottomLeftRadius, bottomRightRadius)\n- **Spacing** (itemSpacing, padding properties)\n- **Stroke widths** (strokeWeight property)\n- **Opacity** (opacity property)\n\n### Effects (Shadows)\n- **Box shadows** (effects array with type: "DROP_SHADOW" or "INNER_SHADOW")\n  - Extract offset: {x, y} → Offset(x, y)\n  - Extract radius (blur) → blurRadius\n  - Extract spread → spreadRadius\n  - Extract color: {r, g, b, a} → Color with alpha\n  - Multiple shadows → multiple BoxShadow in list\n\n**CRITICAL:** When you see these properties in the Figma data, use the EXACT values. Do not approximate.\n\n### Gradient Conversion Examples:\n\`\`\`\nFigma GRADIENT_LINEAR:\n{\n  type: "GRADIENT_LINEAR",\n  gradientStops: [\n    {color: {r: 0.2, g: 0.4, b: 0.8}, position: 0},\n    {color: {r: 0.8, g: 0.2, b: 0.4}, position: 1}\n  ]\n}\n\nFlutter:\nLinearGradient(\n  colors: [Color(0xFF3366CC), Color(0xFFCC3366)],\n  stops: [0.0, 1.0],\n  begin: Alignment.topLeft,\n  end: Alignment.bottomRight,\n)\n\`\`\`\n\n### Shadow Conversion Examples:\n\`\`\`\nFigma DROP_SHADOW:\n{\n  type: "DROP_SHADOW",\n  offset: {x: 0, y: 4},\n  radius: 8,\n  spread: 2,\n  color: {r: 0, g: 0, b: 0, a: 0.25}\n}\n\nFlutter:\nBoxShadow(\n  offset: Offset(0, 4),\n  blurRadius: 8.0,\n  spreadRadius: 2.0,\n  color: Color(0x40000000),  // 0.25 alpha = 0x40\n)\n\`\`\`\n\nFigma Design JSON:\n\`\`\`json\n${JSON.stringify(figmaData, null, 2)}\n\`\`\`\n\n`;
@@ -220,21 +242,72 @@ Analyze the provided UI screenshot and generate pixel-perfect Flutter code that 
         return prompt;
     }
 
-    /**
-     * Legacy method for backward compatibility
-     * @deprecated Use generateCodeFromImage instead
-     */
-    async generateCode(promptData: { contextImage: string; options?: GenerationOptions; figmaData?: unknown }): Promise<string> {
-        console.log('[GeminiService] generateCode (legacy) called');
-        const { contextImage, options, figmaData } = promptData;
+    private async _runWithRetries(params: {
+        runner: InMemoryRunner;
+        userId: string;
+        sessionId: string;
+        newMessage: Content;
+        maxAttempts: number;
+        timeoutMs: number;
+    }): Promise<string> {
+        const { runner, userId, sessionId, newMessage, maxAttempts, timeoutMs } = params;
+        let lastError: Error | null = null;
 
-        // Merge figmaData into options if provided
-        const enhancedOptions: GenerationOptions = { ...(options || {}) };
-        if (figmaData) {
-            enhancedOptions.figmaData = figmaData;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                const result = await this._runWithTimeout({
+                    runner,
+                    userId,
+                    sessionId,
+                    newMessage,
+                    timeoutMs,
+                });
+                if (result) return result;
+                throw new Error('Agent did not return a response.');
+            } catch (error) {
+                lastError = error as Error;
+                console.error(`[GeminiService] Attempt ${attempt} failed:`, lastError.message);
+                if (attempt < maxAttempts) {
+                    await this._sleep(500 * attempt);
+                }
+            }
         }
 
-        return this.generateCodeFromImage(contextImage, enhancedOptions);
+        throw new Error(`AI request failed after ${maxAttempts} attempts: ${lastError?.message || 'Unknown error'}`);
+    }
+
+    private async _runWithTimeout(params: {
+        runner: InMemoryRunner;
+        userId: string;
+        sessionId: string;
+        newMessage: Content;
+        timeoutMs: number;
+    }): Promise<string> {
+        const { runner, userId, sessionId, newMessage, timeoutMs } = params;
+
+        const runPromise = (async () => {
+            let finalText = '';
+            for await (const event of runner.runAsync({
+                userId,
+                sessionId,
+                newMessage,
+            })) {
+                if (isFinalResponse(event) && event.content?.parts?.length) {
+                    finalText = stringifyContent(event).trim();
+                }
+            }
+            return finalText;
+        })();
+
+        const timeoutPromise = new Promise<string>((_resolve, reject) => {
+            setTimeout(() => reject(new Error(`AI request timed out after ${timeoutMs}ms`)), timeoutMs);
+        });
+
+        return Promise.race([runPromise, timeoutPromise]);
+    }
+
+    private async _sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 }
 

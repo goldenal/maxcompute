@@ -238,8 +238,8 @@ async function serializeNode(
         try {
             figma.ui.postMessage({ type: 'log-to-server', message: `[Context] Exporting root node "${node.name}"...`, logType: 'info' });
 
-            // Export at 1.5x
-            const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 1.5 } });
+            const scale = getAdaptiveScale(node, 1200, 0.5, 1.5);
+            const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
             const base64 = figma.base64Encode(bytes);
             const safeName = `context_${node.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
 
@@ -297,7 +297,8 @@ async function serializeNode(
             if (hasImage) {
                 try {
                     console.log(`[Asset] Found image in node: "${node.name}"`);
-                    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 2 } });
+                    const scale = getAdaptiveScale(node, 800, 0.5, 2);
+                    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
                     const base64 = figma.base64Encode(bytes);
                     const safeName = node.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
 
@@ -569,6 +570,29 @@ function serializeEffect(effect: Effect): any {
     return null;
 }
 
+function getAdaptiveScale(node: SceneNode, targetMax: number, minScale: number, maxScale: number): number {
+    const maxDim = Math.max(node.width, node.height);
+    if (maxDim <= 0) return minScale;
+    const scale = targetMax / maxDim;
+    return Math.min(maxScale, Math.max(minScale, scale));
+}
+
+function pruneEmpty(value: any): any {
+    if (Array.isArray(value)) {
+        const pruned = value.map(pruneEmpty).filter((v) => v !== undefined);
+        return pruned.length > 0 ? pruned : undefined;
+    }
+    if (value && typeof value === 'object') {
+        const entries = Object.entries(value)
+            .map(([k, v]) => [k, pruneEmpty(v)])
+            .filter(([, v]) => v !== undefined);
+        if (entries.length === 0) return undefined;
+        return Object.fromEntries(entries);
+    }
+    if (value === undefined || value === null) return undefined;
+    return value;
+}
+
 // --- Message Handling ---
 
 figma.ui.onmessage = async (msg) => {
@@ -591,11 +615,12 @@ figma.ui.onmessage = async (msg) => {
         try {
             const assets: Record<string, any> = {};
             const serialized = await serializeNode(selection[0], assets, 0, 0, 1);
+            const pruned = pruneEmpty(serialized) as SerializedNode;
             const contextImage = (serialized as any).contextImageFilename;
 
             figma.ui.postMessage({
                 type: 'selection-data',
-                data: serialized,
+                data: pruned,
                 assets: assets,
                 contextImage: contextImage,
                 saveToFile: msg.saveToFile
