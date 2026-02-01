@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "rootDir": ".",
+        "outDir": "dist",
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+        "strict": true
+    },
+    "include": ["index.ts", "src/**/*.ts", "test_server.ts"],
+    "exclude": ["node_modules", "dist", "uploads"]
+}

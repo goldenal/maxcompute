@@ -1,9 +1,17 @@
-const { GoogleGenAI } = require('@google/genai');
-const fs = require('fs');
-const path = require('path');
+import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
+
+interface GenerationOptions {
+    widgetType?: string;
+    useProvider?: boolean;
+    figmaData?: unknown;
+}
 
 class GeminiService {
-    constructor(apiKey) {
+    private ai: GoogleGenAI;
+
+    constructor(apiKey?: string) {
         if (!apiKey) {
             throw new Error('Gemini API Key is required');
         }
@@ -19,9 +27,9 @@ class GeminiService {
      * @param {Object} options.figmaData - Optional Figma JSON for precise measurements
      * @returns {Promise<string>} Generated Flutter code
      */
-    async generateCodeFromImage(contextImage, options = {}) {
+    async generateCodeFromImage(contextImage: string, options: GenerationOptions = {}): Promise<string> {
         console.log('[GeminiService] generateCodeFromImage started');
-        
+
         if (!contextImage) {
             throw new Error('Context image is required for code generation');
         }
@@ -37,7 +45,7 @@ class GeminiService {
 
             // Load and encode the image
             const imageData = await this._loadImage(contextImage);
-            
+
             if (figmaData) {
                 console.log('[GeminiService] Including Figma data for precise measurements');
             }
@@ -47,14 +55,14 @@ class GeminiService {
                 { text: userPrompt },
                 {
                     inlineData: {
-                        mimeType: "image/png",
-                        data: imageData
-                    }
-                }
+                        mimeType: 'image/png',
+                        data: imageData,
+                    },
+                },
             ];
 
-            // Use gemini-2.0-flash-exp for multimodal support
-            const modelId = "gemini-2.5-pro";
+            // Use gemini-2.5-pro for multimodal support
+            const modelId = 'gemini-2.5-pro';
 
             console.log('[GeminiService] Sending request to Gemini API...');
             const response = await this.ai.models.generateContent({
@@ -66,7 +74,7 @@ class GeminiService {
                 contents: [{ role: 'user', parts: parts }],
             });
 
-            let code = response.text;
+            let code = (response as { text?: string }).text;
 
             // Clean up code fences if present
             if (code) {
@@ -74,10 +82,9 @@ class GeminiService {
             }
 
             console.log('[GeminiService] Code generation completed successfully');
-            return code;
-
+            return code || '';
         } catch (error) {
-            console.error("[GeminiService] Error during code generation:", error);
+            console.error('[GeminiService] Error during code generation:', error);
             throw error;
         }
     }
@@ -86,17 +93,18 @@ class GeminiService {
      * Load and encode image from uploads directory
      * @private
      */
-    async _loadImage(filename) {
+    private async _loadImage(filename: string): Promise<string> {
         const imagePath = path.join(__dirname, '../../uploads', filename);
-        
+
         try {
             const imageBuffer = await fs.promises.readFile(imagePath);
             const imageBase64 = imageBuffer.toString('base64');
             console.log(`[GeminiService] Image loaded successfully. Size: ${imageBase64.length} chars`);
             return imageBase64;
         } catch (error) {
-            console.error(`[GeminiService] Failed to read image at ${imagePath}:`, error.message);
-            throw new Error(`Failed to load context image: ${error.message}`);
+            const err = error as Error;
+            console.error(`[GeminiService] Failed to read image at ${imagePath}:`, err.message);
+            throw new Error(`Failed to load context image: ${err.message}`);
         }
     }
 
@@ -104,7 +112,7 @@ class GeminiService {
      * Build system instruction for the LLM
      * @private
      */
-    _buildSystemInstruction(widgetType, useProvider) {
+    private _buildSystemInstruction(widgetType: string, useProvider: boolean): string {
         return `You are a Senior Flutter Engineer specializing in converting UI designs to production-ready Flutter code.
 
 ## YOUR TASK
@@ -200,15 +208,15 @@ Analyze the provided UI screenshot and generate pixel-perfect Flutter code that 
      * Build user prompt for image analysis with optional Figma data
      * @private
      */
-    _buildUserPrompt(figmaData = null) {
-        let prompt = `Please analyze the UI screenshot provided and generate production-ready Flutter code that recreates this design with pixel-perfect accuracy.`;
-        
+    private _buildUserPrompt(figmaData: unknown = null): string {
+        let prompt = 'Please analyze the UI screenshot provided and generate production-ready Flutter code that recreates this design with pixel-perfect accuracy.';
+
         if (figmaData) {
             prompt += `\n\n## FIGMA DESIGN DATA (Use for Precise Measurements)\n\nI'm providing the Figma design data below. Use this JSON to extract EXACT values for:\n\n### Typography\n- **Font sizes** (fontSize property)\n- **Font weights** (fontWeight property)\n- **Line heights** (lineHeight property)\n- **Letter spacing** (letterSpacing property)\n\n### Colors & Fills\n- **Solid colors** (fills array with type: "SOLID", color: {r, g, b} in 0-1 range)\n- **Gradients** (fills array with type: "GRADIENT_LINEAR" or "GRADIENT_RADIAL")\n  - Extract gradientStops array: [{color: {r, g, b}, position: 0-1}]\n  - Extract gradientHandlePositions for angle/direction\n  - Convert to Flutter LinearGradient or RadialGradient\n\n### Layout & Spacing\n- **Border radius** (cornerRadius, topLeftRadius, topRightRadius, bottomLeftRadius, bottomRightRadius)\n- **Spacing** (itemSpacing, padding properties)\n- **Stroke widths** (strokeWeight property)\n- **Opacity** (opacity property)\n\n### Effects (Shadows)\n- **Box shadows** (effects array with type: "DROP_SHADOW" or "INNER_SHADOW")\n  - Extract offset: {x, y} → Offset(x, y)\n  - Extract radius (blur) → blurRadius\n  - Extract spread → spreadRadius\n  - Extract color: {r, g, b, a} → Color with alpha\n  - Multiple shadows → multiple BoxShadow in list\n\n**CRITICAL:** When you see these properties in the Figma data, use the EXACT values. Do not approximate.\n\n### Gradient Conversion Examples:\n\`\`\`\nFigma GRADIENT_LINEAR:\n{\n  type: "GRADIENT_LINEAR",\n  gradientStops: [\n    {color: {r: 0.2, g: 0.4, b: 0.8}, position: 0},\n    {color: {r: 0.8, g: 0.2, b: 0.4}, position: 1}\n  ]\n}\n\nFlutter:\nLinearGradient(\n  colors: [Color(0xFF3366CC), Color(0xFFCC3366)],\n  stops: [0.0, 1.0],\n  begin: Alignment.topLeft,\n  end: Alignment.bottomRight,\n)\n\`\`\`\n\n### Shadow Conversion Examples:\n\`\`\`\nFigma DROP_SHADOW:\n{\n  type: "DROP_SHADOW",\n  offset: {x: 0, y: 4},\n  radius: 8,\n  spread: 2,\n  color: {r: 0, g: 0, b: 0, a: 0.25}\n}\n\nFlutter:\nBoxShadow(\n  offset: Offset(0, 4),\n  blurRadius: 8.0,\n  spreadRadius: 2.0,\n  color: Color(0x40000000),  // 0.25 alpha = 0x40\n)\n\`\`\`\n\nFigma Design JSON:\n\`\`\`json\n${JSON.stringify(figmaData, null, 2)}\n\`\`\`\n\n`;
         }
-        
-        prompt += `\n\nFocus on:\n- Accurate layout structure from the visual\n- EXACT spacing, padding, and dimensions from Figma data (if provided)\n- EXACT colors and gradients from Figma data (if provided)\n- EXACT typography (sizes, weights, line heights) from Figma data (if provided)\n- EXACT border radius from Figma data (if provided)\n- EXACT box shadows from Figma data (if provided)\n- Appropriate Flutter widgets\n\nGenerate clean, well-structured code that follows Flutter best practices.`;
-        
+
+        prompt += '\n\nFocus on:\n- Accurate layout structure from the visual\n- EXACT spacing, padding, and dimensions from Figma data (if provided)\n- EXACT colors and gradients from Figma data (if provided)\n- EXACT typography (sizes, weights, line heights) from Figma data (if provided)\n- EXACT border radius from Figma data (if provided)\n- EXACT box shadows from Figma data (if provided)\n- Appropriate Flutter widgets\n\nGenerate clean, well-structured code that follows Flutter best practices.';
+
         return prompt;
     }
 
@@ -216,18 +224,18 @@ Analyze the provided UI screenshot and generate pixel-perfect Flutter code that 
      * Legacy method for backward compatibility
      * @deprecated Use generateCodeFromImage instead
      */
-    async generateCode(promptData) {
+    async generateCode(promptData: { contextImage: string; options?: GenerationOptions; figmaData?: unknown }): Promise<string> {
         console.log('[GeminiService] generateCode (legacy) called');
         const { contextImage, options, figmaData } = promptData;
-        
+
         // Merge figmaData into options if provided
-        const enhancedOptions = { ...options };
+        const enhancedOptions: GenerationOptions = { ...(options || {}) };
         if (figmaData) {
             enhancedOptions.figmaData = figmaData;
         }
-        
+
         return this.generateCodeFromImage(contextImage, enhancedOptions);
     }
 }
 
-module.exports = GeminiService;
+export default GeminiService;

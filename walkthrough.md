@@ -23,11 +23,17 @@ The server handles the communication with Gemini.
     ```bash
     cd server
     ```
-3.  Start the server:
+3.  Start the server in dev mode (TypeScript):
     ```bash
-    npm start
+    npm run dev
     ```
     You should see: `Server running on http://localhost:3000`
+
+    For a production-style run:
+    ```bash
+    npm run build
+    npm start
+    ```
 
 ### 3. Build the Plugin (Optional)
 The plugin is already built, but if you make changes:

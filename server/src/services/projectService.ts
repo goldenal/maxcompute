@@ -1,12 +1,18 @@
-const fs = require('fs');
-const path = require('path');
-const { exec } = require('child_process');
-const util = require('util');
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
+import util from 'util';
+
 const execPromise = util.promisify(exec);
 
-class ProjectService {
+interface AssetEntry {
+    id: string;
+    name: string;
+    filename: string;
+}
 
-    async validateProject(projectPath) {
+class ProjectService {
+    async validateProject(projectPath: string): Promise<boolean> {
         console.log(`[ProjectService] validateProject: ${projectPath}`);
         try {
             const pubspecPath = path.join(projectPath, 'pubspec.yaml');
@@ -19,7 +25,7 @@ class ProjectService {
         }
     }
 
-    async createProject(parentPath, projectName) {
+    async createProject(parentPath: string, projectName: string): Promise<string> {
         try {
             // Ensure parent directory exists
             await fs.promises.access(parentPath);
@@ -31,7 +37,8 @@ class ProjectService {
                 await fs.promises.access(fullPath);
                 throw new Error(`Directory ${projectName} already exists in ${parentPath}`);
             } catch (e) {
-                if (e.code !== 'ENOENT') throw e;
+                const err = e as NodeJS.ErrnoException;
+                if (err.code !== 'ENOENT') throw err;
             }
 
             // Run flutter create
@@ -55,7 +62,7 @@ class ProjectService {
         }
     }
 
-    async getFeatures(projectPath) {
+    async getFeatures(projectPath: string): Promise<string[]> {
         try {
             const featuresPath = path.join(projectPath, 'lib', 'features');
 
@@ -69,15 +76,15 @@ class ProjectService {
 
             const entries = await fs.promises.readdir(featuresPath, { withFileTypes: true });
             return entries
-                .filter(dirent => dirent.isDirectory())
-                .map(dirent => dirent.name);
+                .filter((dirent) => dirent.isDirectory())
+                .map((dirent) => dirent.name);
         } catch (error) {
             console.error('Get Features Error:', error);
             throw error;
         }
     }
 
-    async createFeature(projectPath, featureName) {
+    async createFeature(projectPath: string, featureName: string): Promise<string> {
         try {
             const featurePath = path.join(projectPath, 'lib', 'features', featureName);
             await fs.promises.mkdir(featurePath, { recursive: true });
@@ -88,7 +95,7 @@ class ProjectService {
         }
     }
 
-    async saveFile(projectPath, featureName, fileName, content) {
+    async saveFile(projectPath: string, featureName: string, fileName: string, content: string): Promise<string> {
         try {
             const featurePath = path.join(projectPath, 'lib', 'features', featureName);
 
@@ -110,7 +117,7 @@ class ProjectService {
      * Saves uploaded image to temp directory
      * Returns unique filename
      */
-    async saveTempUpload(name, data) {
+    async saveTempUpload(name: string, data: string): Promise<string> {
         try {
             const uploadsDir = path.join(__dirname, '../../uploads');
             await fs.promises.mkdir(uploadsDir, { recursive: true });
@@ -128,7 +135,6 @@ class ProjectService {
             console.log(`[ProjectService] Temp upload saved: ${filename}`);
             return filename;
         } catch (error) {
-
             console.error('Save Temp Upload Error:', error);
             throw error;
         }
@@ -138,14 +144,13 @@ class ProjectService {
      * Copies assets from temp uploads to project's assets/images folder
      * Returns assetMap: { nodeId: 'assets/images/filename.png' }
      */
-    
-    async saveAssets(projectPath, assets) {
+    async saveAssets(projectPath: string, assets: Record<string, AssetEntry>): Promise<Record<string, string>> {
         try {
             const assetsDir = path.join(projectPath, 'assets', 'images');
             await fs.promises.mkdir(assetsDir, { recursive: true });
             const uploadsDir = path.join(__dirname, '../../uploads');
 
-            const assetMap = {};
+            const assetMap: Record<string, string> = {};
 
             for (const [nodeId, asset] of Object.entries(assets)) {
                 // Asset structure: { id, name, filename }
@@ -182,14 +187,14 @@ class ProjectService {
                     } catch (e) {
                         // Ignore deletion errors
                     }
-
                 } catch (e) {
-                    console.error(`[ProjectService] Failed to copy asset ${asset.filename}:`, e.message);
+                    const err = e as Error;
+                    console.error(`[ProjectService] Failed to copy asset ${asset.filename}:`, err.message);
                     // Continue with other assets even if one fails
                 }
             }
 
-            console.log(`[ProjectService] Asset map created:`, assetMap);
+            console.log('[ProjectService] Asset map created:', assetMap);
             return assetMap;
         } catch (error) {
             console.error('Save Assets Error:', error);
@@ -200,7 +205,7 @@ class ProjectService {
     /**
      * Updates pubspec.yaml to register assets/images/ folder
      */
-    async updatePubspec(projectPath) {
+    async updatePubspec(projectPath: string): Promise<void> {
         try {
             const pubspecPath = path.join(projectPath, 'pubspec.yaml');
             let content = await fs.promises.readFile(pubspecPath, 'utf8');
@@ -212,7 +217,7 @@ class ProjectService {
             }
 
             const lines = content.split('\n');
-            const flutterIndex = lines.findIndex(line => line.trim() === 'flutter:');
+            const flutterIndex = lines.findIndex((line) => line.trim() === 'flutter:');
 
             if (flutterIndex === -1) {
                 // No flutter section, add it at the end
@@ -233,7 +238,7 @@ class ProjectService {
                     // Assets section exists, add our path
                     // Find the indentation of the assets section
                     const assetsLine = lines[assetsIndex];
-                    const indent = assetsLine.match(/^\s*/)[0] + '  ';
+                    const indent = (assetsLine.match(/^\s*/) || [''])[0] + '  ';
                     lines.splice(assetsIndex + 1, 0, `${indent}- assets/images/`);
                 }
             }
@@ -250,7 +255,7 @@ class ProjectService {
     /**
      * Cleanup old temp uploads (optional maintenance method)
      */
-    async cleanupTempUploads(maxAgeHours = 24) {
+    async cleanupTempUploads(maxAgeHours: number = 24): Promise<void> {
         try {
             const uploadsDir = path.join(__dirname, '../../uploads');
             const files = await fs.promises.readdir(uploadsDir);
@@ -272,4 +277,4 @@ class ProjectService {
     }
 }
 
-module.exports = ProjectService;
+export default ProjectService;

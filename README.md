@@ -50,11 +50,17 @@ The server handles the communication with the Gemini API.
    ```env
    GEMINI_API_KEY=your_actual_api_key_here
    ```
-5. Start the server:
+5. Start the server (TypeScript):
    ```bash
    npm run dev
    ```
    The server will run on `http://localhost:3000`.
+
+   For a production-style run:
+   ```bash
+   npm run build
+   npm start
+   ```
 
 ### 3. Figma Plugin Setup
 

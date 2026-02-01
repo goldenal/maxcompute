@@ -1,8 +1,8 @@
-function buildPrompt(figmaData, options = {}, assetMap = {}) {
+export function buildPrompt(figmaData: unknown, options: { widgetType?: string; useProvider?: boolean } = {}, assetMap: Record<string, string> = {}) {
     const { widgetType = 'StatelessWidget', useProvider = false } = options;
 
     const assetInstruction = Object.keys(assetMap).length > 0
-        ? `\n### ASSETS\n${Object.entries(assetMap).map(([id, path]) => `- Node ID \`"${id}"\` maps to \`Image.asset('${path}')\``).join('\n')}\n`
+        ? `\n### ASSETS\n${Object.entries(assetMap).map(([id, path]) => `- Node ID \"${id}\" maps to \`Image.asset('${path}')\``).join('\n')}\n`
         : '';
 
     const systemInstruction = `You are a Senior Flutter Engineer with expertise in pixel-perfect UI conversion.
@@ -115,15 +115,7 @@ ${assetInstruction}
 4. For \`layoutMode: NONE\` with multiple children → likely \`Stack\`
 5. Pay attention to \`layoutAlign\` for child alignment within parent auto-layout`;
 
-    const userPrompt = `Convert the following Figma design to Flutter code:
-
-\`\`\`json
-${JSON.stringify(figmaData, null, 2)}
-\`\`\`
-
-IMPORTANT: Analyze the structure carefully. Use the semantic hints and visual context to make intelligent decisions about widget types and layout strategies.`;
+    const userPrompt = `Convert the following Figma design to Flutter code:\n\n\`\`\`json\n${JSON.stringify(figmaData, null, 2)}\n\`\`\`\n\nIMPORTANT: Analyze the structure carefully. Use the semantic hints and visual context to make intelligent decisions about widget types and layout strategies.`;
 
     return { systemInstruction, userPrompt };
 }
-
-module.exports = { buildPrompt };
