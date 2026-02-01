@@ -104,6 +104,26 @@ app.post('/file/save', async (req: Request, res: Response) => {
         };
         const filePath = await projectService.saveFile(projectPath, featureName, fileName, content);
         res.json({ filePath });
+
+        // Trigger build-web automatically after a file is saved.
+        setImmediate(async () => {
+            try {
+                if (!geminiService) {
+                    if (process.env.GEMINI_API_KEY) {
+                        geminiService = new GeminiService(process.env.GEMINI_API_KEY);
+                    } else {
+                        console.error('[Server] GEMINI_API_KEY missing; skipping build-web');
+                        return;
+                    }
+                }
+
+                const result = await geminiService.fixFlutterProjectWeb(projectPath);
+                console.log(`[Server] build-web completed: success=${result.success} attempts=${result.attempts}`);
+            } catch (error) {
+                const err = error as Error;
+                console.error('[Server] build-web failed:', err.message);
+            }
+        });
     } catch (error) {
         const err = error as Error;
         res.status(500).json({ error: err.message });
@@ -211,6 +231,27 @@ app.post('/log', (req: Request, res: Response) => {
     const prefix = type === 'error' ? '[Plugin Error]' : '[Plugin Log]';
     console.log(`${prefix} ${message}`);
     res.json({ success: true });
+});
+
+// Build & Fix Flutter Web
+app.post('/project/build-web', async (req: Request, res: Response) => {
+    try {
+        const { projectPath } = req.body as { projectPath: string };
+
+        if (!geminiService) {
+            if (process.env.GEMINI_API_KEY) {
+                geminiService = new GeminiService(process.env.GEMINI_API_KEY);
+            } else {
+                return res.status(500).json({ error: 'Server configuration error: GEMINI_API_KEY missing.' });
+            }
+        }
+
+        const result = await geminiService.fixFlutterProjectWeb(projectPath);
+        res.json({ success: result.success, attempts: result.attempts });
+    } catch (error) {
+        const err = error as Error;
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.listen(PORT, () => {

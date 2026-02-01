@@ -3,6 +3,9 @@ import fs from 'fs';
 import { LlmAgent, FunctionTool, InMemoryRunner, isFinalResponse, stringifyContent } from '@google/adk';
 import { Content } from '@google/genai';
 import { z } from 'zod';
+import ProjectService from './projectService';
+import { execFile } from 'child_process';
+import util from 'util';
 
 interface GenerationOptions {
     widgetType?: string;
@@ -11,7 +14,10 @@ interface GenerationOptions {
 }
 
 class GeminiService {
+    private projectService: ProjectService;
+
     constructor(_apiKey?: string) {
+        this.projectService = new ProjectService();
     }
 
     /**
@@ -98,6 +104,60 @@ class GeminiService {
         return this.generateCodeFromImage(contextImage, enhancedOptions);
     }
 
+    async fixFlutterProjectWeb(projectPath: string, options?: { maxFixAttempts?: number; buildTimeoutMs?: number }): Promise<{ success: boolean; attempts: number }> {
+        const maxFixAttempts = options?.maxFixAttempts ?? 3;
+        const buildTimeoutMs = options?.buildTimeoutMs ?? 5 * 60 * 1000;
+
+        const isValid = await this.projectService.validateProject(projectPath);
+        if (!isValid) {
+            throw new Error(`Invalid Flutter project at ${projectPath} (pubspec.yaml not found).`);
+        }
+
+        const agent = this._buildFixAgent(projectPath);
+        const runner = new InMemoryRunner({ agent, appName: 'flutter_fix_app' });
+        const sessionId = `fix_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        await runner.sessionService.createSession({
+            appName: 'flutter_fix_app',
+            userId: 'server',
+            sessionId,
+        });
+
+        let lastError = '';
+
+        for (let attempt = 1; attempt <= maxFixAttempts; attempt += 1) {
+            console.log(`[GeminiService] Build attempt ${attempt}/${maxFixAttempts}`);
+
+            await this._runFlutter(projectPath, ['pub', 'get'], buildTimeoutMs);
+
+            try {
+                await this._runFlutter(projectPath, ['build', 'web'], buildTimeoutMs);
+                return { success: true, attempts: attempt };
+            } catch (error) {
+                const err = error as Error;
+                lastError = err.message;
+            }
+
+            const errorExcerpt = this._truncate(lastError, 6000);
+            const fixPrompt = this._buildFixPrompt(projectPath, errorExcerpt, attempt, maxFixAttempts);
+
+            const newMessage: Content = {
+                role: 'user',
+                parts: [{ text: fixPrompt }],
+            };
+
+            await this._runAgentOnce({
+                runner,
+                userId: 'server',
+                sessionId,
+                newMessage,
+                timeoutMs: 60_000,
+            });
+        }
+
+        throw new Error(`Build failed after ${maxFixAttempts} attempts: ${lastError}`);
+    }
+
     private _buildTools(): FunctionTool[] {
         // Keep tools minimal for future use; file IO is handled deterministically by the server.
         const noop = new FunctionTool({
@@ -108,6 +168,66 @@ class GeminiService {
         });
 
         return [noop];
+    }
+
+    private _buildFixAgent(projectPath: string): LlmAgent {
+        const tools = this._buildFixTools(projectPath);
+        return new LlmAgent({
+            name: 'flutter_fix_agent',
+            instruction: this._buildFixSystemInstruction(),
+            tools,
+            model: 'gemini-2.5-flash',
+        });
+    }
+
+    private _buildFixTools(projectPath: string): FunctionTool[] {
+        const readFile = new FunctionTool({
+            name: 'read_file',
+            description: 'Read a UTF-8 text file inside the Flutter project.',
+            parameters: z.object({
+                path: z.string().describe('Path to the file, absolute or relative to project root.'),
+            }),
+            execute: async ({ path: inputPath }) => {
+                const resolved = this._resolveProjectPath(projectPath, inputPath);
+                const content = await fs.promises.readFile(resolved, 'utf8');
+                return { status: 'success', content: this._truncate(content, 20000) };
+            },
+        });
+
+        const writeFile = new FunctionTool({
+            name: 'write_file',
+            description: 'Write UTF-8 content to a file inside the Flutter project.',
+            parameters: z.object({
+                path: z.string().describe('Path to the file, absolute or relative to project root.'),
+                content: z.string().describe('Full file contents to write.'),
+            }),
+            execute: async ({ path: inputPath, content }) => {
+                const resolved = this._resolveProjectPath(projectPath, inputPath);
+                if (!this._isAllowedWritePath(projectPath, resolved)) {
+                    throw new Error('Write path is not allowed.');
+                }
+                await fs.promises.writeFile(resolved, content, 'utf8');
+                return { status: 'success' };
+            },
+        });
+
+        const listFiles = new FunctionTool({
+            name: 'list_files',
+            description: 'List files and directories under a given project subdirectory.',
+            parameters: z.object({
+                dir: z.string().describe('Directory to list, relative to project root.'),
+            }),
+            execute: async ({ dir }) => {
+                const resolved = this._resolveProjectPath(projectPath, dir);
+                const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+                return {
+                    status: 'success',
+                    entries: entries.map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' })),
+                };
+            },
+        });
+
+        return [readFile, writeFile, listFiles];
     }
 
     /**
@@ -304,6 +424,75 @@ Analyze the provided UI screenshot and generate pixel-perfect Flutter code that 
         });
 
         return Promise.race([runPromise, timeoutPromise]);
+    }
+
+    private async _runAgentOnce(params: {
+        runner: InMemoryRunner;
+        userId: string;
+        sessionId: string;
+        newMessage: Content;
+        timeoutMs: number;
+    }): Promise<void> {
+        const { runner, userId, sessionId, newMessage, timeoutMs } = params;
+
+        const runPromise = (async () => {
+            for await (const _event of runner.runAsync({
+                userId,
+                sessionId,
+                newMessage,
+            })) {
+                // Drain events until completion.
+            }
+        })();
+
+        const timeoutPromise = new Promise<void>((_resolve, reject) => {
+            setTimeout(() => reject(new Error(`Agent fix timed out after ${timeoutMs}ms`)), timeoutMs);
+        });
+
+        await Promise.race([runPromise, timeoutPromise]);
+    }
+
+    private _buildFixSystemInstruction(): string {
+        return `You are a Flutter build-fix assistant. Your goal is to make the project compile for web.\n\nRules:\n- Only edit files when necessary.\n- Prefer minimal changes.\n- Use read_file to inspect files before editing.\n- Use write_file to apply fixes.\n- Allowed write targets: pubspec.yaml, lib/**, assets/**.\n- Do not add new files unless required to fix a build error.\n- After making changes, stop and wait for the next build attempt.`;
+    }
+
+    private _buildFixPrompt(projectPath: string, errorLog: string, attempt: number, maxAttempts: number): string {
+        return `The Flutter web build failed.\n\nProject path: ${projectPath}\nAttempt ${attempt}/${maxAttempts}\n\nError log (truncated):\n${errorLog}\n\nFix the error by editing files using the tools. If you need to inspect files, call read_file or list_files.\nWhen you finish applying fixes, do not output code; just finish.`;
+    }
+
+    private async _runFlutter(projectPath: string, args: string[], timeoutMs: number): Promise<void> {
+        const execFileAsync = util.promisify(execFile);
+        try {
+            const { stdout, stderr } = await execFileAsync('flutter', args, {
+                cwd: projectPath,
+                timeout: timeoutMs,
+                maxBuffer: 5 * 1024 * 1024,
+            });
+            if (stdout) console.log(stdout);
+            if (stderr) console.error(stderr);
+        } catch (error) {
+            const err = error as { stdout?: string; stderr?: string; message: string };
+            const details = `${err.stdout || ''}\n${err.stderr || ''}`.trim();
+            throw new Error(details || err.message);
+        }
+    }
+
+    private _resolveProjectPath(projectRoot: string, inputPath: string): string {
+        const resolved = path.resolve(projectRoot, inputPath);
+        if (!resolved.startsWith(path.resolve(projectRoot))) {
+            throw new Error('Path is outside the project root.');
+        }
+        return resolved;
+    }
+
+    private _isAllowedWritePath(projectRoot: string, resolvedPath: string): boolean {
+        const rel = path.relative(projectRoot, resolvedPath).replace(/\\\\/g, '/');
+        return rel === 'pubspec.yaml' || rel.startsWith('lib/') || rel.startsWith('assets/');
+    }
+
+    private _truncate(value: string, maxLen: number): string {
+        if (value.length <= maxLen) return value;
+        return `${value.slice(0, maxLen)}\n... [truncated ${value.length - maxLen} chars]`;
     }
 
     private async _sleep(ms: number): Promise<void> {
